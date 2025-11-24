@@ -5,6 +5,7 @@
     <mapping directory="$PROJECT_DIR$/commons-module" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/credit-card-module" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/external-payment-module" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/loans-module" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/transaction-module-solution" vcs="Git" />
   </component>
 </project>
