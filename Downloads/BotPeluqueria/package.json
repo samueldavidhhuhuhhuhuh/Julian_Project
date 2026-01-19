@@ -1,0 +1,15 @@
+{
+  "name": "bot-julian-baileys",
+  "version": "1.1.0",
+  "description": "Bot Baileys con QR Manual",
+  "main": "bot.js",
+  "type": "module",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.9",
+    "pino": "^9.0.0",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
