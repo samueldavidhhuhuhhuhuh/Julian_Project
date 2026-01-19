@@ -3,12 +3,14 @@ import pino from 'pino';
 import qrcode from 'qrcode-terminal';
 
 const userStates = new Map();
-const SESSION_TIMEOUT = 30 * 60 * 1000;
+
+// TIEMPOS DE CONFIGURACIÓN
+const SESSION_TIMEOUT = 30 * 60 * 1000;      // 30 minutos para reiniciar el menú si no responden
+const HUMAN_MODE_TIMEOUT = 2 * 60 * 60 * 1000; // 2 HORAS de silencio si el bot falla (para que hable el humano)
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     
-    // Obtenemos la versión oficial más reciente soportada por la librería
     const { version, isLatest } = await fetchLatestBaileysVersion();
     console.log(`Usando versión de WhatsApp v${version.join('.')}, ¿Es la última?: ${isLatest}`);
 
@@ -25,8 +27,9 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
         
         if (qr) {
+            console.clear();
             console.log('\n=============================================');
-            console.log('⚠️  ESCANEA ESTE QR AHORA  ⚠️');
+            console.log('⚠️  ESCANEA ESTE NUEVO CÓDIGO QR  ⚠️');
             console.log('=============================================\n');
             qrcode.generate(qr, { small: true });
         }
@@ -43,8 +46,9 @@ async function connectToWhatsApp() {
                 console.log('⛔ Error crítico. Si es 405, borra auth_info_baileys e intenta de nuevo.');
             }
         } else if (connection === 'open') {
+            console.clear();
             console.log('=============================================');
-            console.log('✅ BOT CONECTADO Y LISTO');
+            console.log('✅ BOT CONECTADO - MODO SILENCIO INTELIGENTE');
             console.log('=============================================');
         }
     });
@@ -67,10 +71,34 @@ async function connectToWhatsApp() {
 
             const now = Date.now();
             let userState = userStates.get(remoteJid) || { step: 'START', lastMsg: 0 };
-            if (now - userState.lastMsg > SESSION_TIMEOUT) userState = { step: 'START', lastMsg: now };
 
-            // FASE 1: MENÚ DE BIENVENIDA
-            if (userState.step === 'START' || ['hola', 'buenas', 'info', 'menu'].some(t => texto.includes(t))) {
+            // ---------------------------------------------------------
+            // 1. CHEQUEO DE "MODO HUMANO" (SILENCIO)
+            // ---------------------------------------------------------
+            if (userState.step === 'HUMAN_MODE') {
+                // Si aún no han pasado las 2 horas de silencio...
+                if (now - userState.lastMsg < HUMAN_MODE_TIMEOUT) {
+                    // EL BOT NO HACE NADA. Deja que el humano hable.
+                    return; 
+                } else {
+                    // Si ya pasaron 2 horas, reactivamos el bot
+                    userState = { step: 'START', lastMsg: now };
+                }
+            }
+
+            // ---------------------------------------------------------
+            // 2. REINICIO DE SESIÓN NORMAL (TIMEOUT DE 30 MIN)
+            // ---------------------------------------------------------
+            if (now - userState.lastMsg > SESSION_TIMEOUT && userState.step !== 'HUMAN_MODE') {
+                userState = { step: 'START', lastMsg: now };
+            }
+
+            // ---------------------------------------------------------
+            // 3. FLUJO DEL BOT
+            // ---------------------------------------------------------
+
+            // FASE 1: MENÚ DE BIENVENIDA (ACTIVACIÓN UNIVERSAL)
+            if (userState.step === 'START') {
                 await sock.sendMessage(remoteJid, { 
                     text: `Bienvenido a Julian Rodriguez Peluqueria 💈\n\n` +
                           `A partir de ahora contamos con un sistema de agendamiento exclusivo a través de WhatsApp. Nuestro asistente virtual gestionará tu cita de manera rápida, cómoda y personalizada.\n\n` +
@@ -81,6 +109,7 @@ async function connectToWhatsApp() {
                 });
                 userStates.set(remoteJid, { step: 'WAITING_OPTION', lastMsg: now });
             }
+            
             // FASE 2: OPCIONES
             else if (userState.step === 'WAITING_OPTION') {
                 
@@ -88,15 +117,13 @@ async function connectToWhatsApp() {
                 if (texto === '1' || texto.includes('reserva')) {
                     await sock.sendMessage(remoteJid, { 
                         text: `Para agendar tu cita te invitamos a hacerlo directamente en nuestra página web, aquí podrás elegir el día y la hora que mejor se adapten a ti de manera rápida y segura:\n\n` +
-                              `👉 https://julianrodriguezpeluqueria.com/` 
+                              `👉 https://julianrodriguezpeluqueria.com/`
                     });
-                    
-                    // Mensaje de cierre a los 2 segundos
                     setTimeout(async () => {
                         await sock.sendMessage(remoteJid, { text: `En caso de no poder asistir por favor avisarnos con anticipación.` });
                     }, 2000);
-                    
-                    userStates.set(remoteJid, { step: 'START', lastMsg: now });
+                    // ÉXITO: Reiniciamos a START para la próxima vez (dentro de mucho tiempo)
+                    userStates.set(remoteJid, { step: 'START', lastMsg: now }); 
                 }
                 
                 // OPCIÓN 2: VIP
@@ -105,15 +132,12 @@ async function connectToWhatsApp() {
                         text: `Club VIP Rodriguez Peluqueria 🌟\n\n` +
                               `Beneficios exclusivos, descuentos especiales y acceso prioritario a nuestros servicios.\n\n` +
                               `👇 *Quiero ser VIP:*\n` +
-                              `👉 https://julianrodriguezpeluqueria.com/` 
+                              `👉 https://julianrodriguezpeluqueria.com/`
                     });
-
-                    // Mensaje de cierre a los 2 segundos
                     setTimeout(async () => {
                         await sock.sendMessage(remoteJid, { text: `Gracias por confiar en nuestros servicios.` });
                     }, 2000);
-
-                    userStates.set(remoteJid, { step: 'START', lastMsg: now });
+                    userStates.set(remoteJid, { step: 'START', lastMsg: now }); 
                 }
                 
                 // OPCIÓN 3: CANCELAR
@@ -122,18 +146,23 @@ async function connectToWhatsApp() {
                         text: `Has solicitado cancelar tu cita en Julian Rodriguez Peluqueria.\n\n` +
                               `Tu reserva ha sido cancelada con éxito. Si deseas reagendar puedes hacerlo directamente desde nuestra web.`
                     });
-
-                    // Mensaje de cierre a los 2 segundos
                     setTimeout(async () => {
                         await sock.sendMessage(remoteJid, { text: `Gracias por confiar en nuestros servicios.` });
                     }, 2000);
-
-                    userStates.set(remoteJid, { step: 'START', lastMsg: now });
+                    userStates.set(remoteJid, { step: 'START', lastMsg: now }); 
                 }
                 
-                // OPCIÓN NO VÁLIDA
+                // --- AQUÍ OCURRE EL "HUMAN HANDOFF" (PASO A HUMANO) ---
+                // Si el usuario escribe algo que NO es una opción válida...
                 else {
-                    await sock.sendMessage(remoteJid, { text: `Por favor escribe *1, 2 o 3* para seleccionar una opción.` });
+                    await sock.sendMessage(remoteJid, { 
+                        text: `⚠️ Opción no reconocida.\n` +
+                              `Te pondremos en contacto con un asesor humano para que te ayude directamente. Por favor espera, te responderemos pronto.`
+                    });
+                    
+                    // ACTIVAMOS EL MODO SILENCIO POR 2 HORAS
+                    console.log(`[MODO HUMANO] Activado para ${remoteJid} por 2 horas.`);
+                    userStates.set(remoteJid, { step: 'HUMAN_MODE', lastMsg: now });
                 }
             }
         } catch (e) {
